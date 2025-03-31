@@ -1,68 +1,53 @@
-// popup.js
-document.addEventListener('DOMContentLoaded', function() {
-    const toggleBtn = document.getElementById('toggleBtn');
-    const fontSelect = document.getElementById('fontSelect');
-    const themeSelect = document.getElementById('themeSelect');
+document.addEventListener('DOMContentLoaded', () => {
+  const toggleBtn = document.getElementById('toggleReaderMode');
+  const fontSize = document.getElementById('fontSize');
+  const fontFamily = document.getElementById('fontFamily');
+  const bgColor = document.getElementById('backgroundColor');
+
+  // Load saved settings
+  chrome.storage.sync.get(['isActive', 'settings'], ({ isActive, settings }) => {
+    toggleBtn.textContent = isActive ? 'Disable Reader Mode' : 'Enable Reader Mode';
+    if (settings) {
+      fontSize.value = settings.fontSize || 16;
+      fontFamily.value = settings.fontFamily || 'Arial';
+      bgColor.value = settings.bgColor || '#ffffff';
+    }
+  });
+
+  // Toggle reader mode
+  toggleBtn.addEventListener('click', async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     
-    // Load saved preferences
-    chrome.storage.sync.get(['font', 'theme'], function(data) {
-      if (data.font) fontSelect.value = data.font;
-      if (data.theme) themeSelect.value = data.theme;
-    });
-    
-    // Check current reader mode status
-    chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
-      chrome.tabs.sendMessage(tabs[0].id, {action: "getStatus"}, function(response) {
-        if (response && response.readerModeActive) {
-          toggleBtn.textContent = "Disable Reader Mode";
-          toggleBtn.classList.add("active");
-        } else {
-          toggleBtn.textContent = "Enable Reader Mode";
-          toggleBtn.classList.remove("active");
-        }
-      });
-    });
-    
-    // Handle toggle button click
-    toggleBtn.addEventListener('click', function() {
-      chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
-        chrome.tabs.sendMessage(tabs[0].id, {action: "toggleReader"}, function(response) {
-          if (response && response.readerModeActive) {
-            toggleBtn.textContent = "Disable Reader Mode";
-            toggleBtn.classList.add("active");
-          } else {
-            toggleBtn.textContent = "Enable Reader Mode";
-            toggleBtn.classList.remove("active");
-          }
-        });
-      });
-    });
-    
-    // Handle font selection change
-    fontSelect.addEventListener('change', function() {
-      const font = fontSelect.value;
-      chrome.storage.sync.set({font: font});
+    chrome.storage.sync.get(['isActive'], async ({ isActive }) => {
+      const newState = !isActive;
       
-      // Apply to active reader mode if enabled
-      chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
-        chrome.tabs.sendMessage(tabs[0].id, {
-          action: "updateSettings",
-          settings: {font: font}
+      // Inject/remove content script
+      if (newState) {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['content.js']
         });
-      });
-    });
-    
-    // Handle theme selection change
-    themeSelect.addEventListener('change', function() {
-      const theme = themeSelect.value;
-      chrome.storage.sync.set({theme: theme});
+      }
       
-      // Apply to active reader mode if enabled
-      chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
-        chrome.tabs.sendMessage(tabs[0].id, {
-          action: "updateSettings",
-          settings: {theme: theme}
-        });
+      chrome.storage.sync.set({ isActive: newState });
+      toggleBtn.textContent = newState ? 'Disable Reader Mode' : 'Enable Reader Mode';
+      chrome.tabs.sendMessage(tab.id, { action: 'toggle', state: newState });
+    });
+  });
+
+  // Update settings
+  [fontSize, fontFamily, bgColor].forEach(element => {
+    element.addEventListener('input', () => {
+      const settings = {
+        fontSize: fontSize.value,
+        fontFamily: fontFamily.value,
+        bgColor: bgColor.value
+      };
+      chrome.storage.sync.set({ settings });
+      chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+        chrome.tabs.sendMessage(tab.id, { action: 'updateSettings', settings });
       });
     });
   });
+});
+
